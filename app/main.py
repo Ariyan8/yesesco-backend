@@ -17,7 +17,7 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# تنظیمات CORS
+# تنظیمات CORS برای ارتباط با فرانت‌اند
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,22 +26,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# روت ریشه و سلامت‌سنجی (سازگار با انواع بازنویسی‌های ورسل)
-@app.get("/")
-@app.get("/api")
-@app.get("/api/index.py")
+# روت ریشه و سلامت‌سنجی
+@app.get("/", summary="بررسی وضعیت سرویس", tags=["General"])
+@app.get("/api", include_in_schema=False)
 async def root():
     return {
         "status": "online",
         "message": "YesESCo API is running successfully on Vercel"
     }
 
-@app.get("/api/health")
-@app.get("/health")
+@app.get("/api/health", summary="بررسی سلامت سیستم", tags=["General"])
+@app.get("/health", include_in_schema=False)
 async def health():
     return {"status": "ok"}
 
-# ثبت متقاضی جدید (هم با پیشوند /api و هم بدون آن)
+# ثبت متقاضی جدید
 @app.post(
     "/api/applicants",
     response_model=SolarApplicantResponse,
@@ -60,11 +59,10 @@ async def create_applicant(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        # ایجاد خودکار جدول در صورت عدم وجود
+        # ساخت جدول در صورت عدم وجود
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-        # سازگار با Pydantic v1 و v2
         data = applicant_in.model_dump() if hasattr(applicant_in, "model_dump") else applicant_in.dict()
         
         new_applicant = SolarApplicant(**data)
@@ -79,7 +77,7 @@ async def create_applicant(
             detail=f"Database error: {str(e)}"
         )
 
-# دریافت لیست متقاضیان (هم با پیشوند /api و هم بدون آن)
+# دریافت لیست تمام متقاضیان
 @app.get(
     "/api/applicants",
     response_model=List[SolarApplicantResponse],
