@@ -1,8 +1,8 @@
+from typing import List
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import List
 
 from app.database import engine, Base, get_db
 from app.models import SolarApplicant
@@ -14,7 +14,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# تنظیمات CORS برای دسترسی فرانت‌اند Next.js
+# تنظیمات CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,14 +23,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-async def startup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
 @app.get("/")
 async def root():
-    return {"message": "YesESCo API is running successfully"}
+    return {
+        "status": "online",
+        "message": "YesESCo API is running successfully on Vercel"
+    }
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
 
 @app.post(
     "/api/applicants",
@@ -42,12 +44,25 @@ async def create_applicant(
     applicant_in: SolarApplicantCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    # ثبت مستقیم بدون جلوگیری از کد ملی تکراری
-    new_applicant = SolarApplicant(**applicant_in.dict())
-    db.add(new_applicant)
-    await db.commit()
-    await db.refresh(new_applicant)
-    return new_applicant
+    try:
+        # ایجاد خودکار جدول در صورت عدم وجود (بدون ایجاد کرش در استارت‌آپ)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        # سازگار با Pydantic v1 و v2
+        data = applicant_in.model_dump() if hasattr(applicant_in, "model_dump") else applicant_in.dict()
+        
+        new_applicant = SolarApplicant(**data)
+        db.add(new_applicant)
+        await db.commit()
+        await db.refresh(new_applicant)
+        return new_applicant
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}"
+        )
 
 @app.get(
     "/api/applicants",
@@ -59,7 +74,13 @@ async def get_all_applicants(
     limit: int = 100,
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(SolarApplicant).order_by(SolarApplicant.id.desc()).offset(skip).limit(limit)
-    result = await db.execute(query)
-    applicants = result.scalars().all()
-    return applicants
+    try:
+        query = select(SolarApplicant).order_by(SolarApplicant.id.desc()).offset(skip).limit(limit)
+        result = await db.execute(query)
+        applicants = result.scalars().all()
+        return applicants
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}"
+        )
