@@ -1,62 +1,92 @@
 import os
 import ssl
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import declarative_base
+
 from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import NullPool
+
 
 load_dotenv()
 
-# مقدار پیش‌فرض در صورت نبود متغیر محیطی
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:123456@localhost:5432/yesesco_db"
-)
 
-# اصلاح خودکار پروتکل برای درایور asyncpg
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-elif DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# تمیزکاری پارامترهای ناسازگار از کوئری‌استرینگ
-for param in ["?sslmode=require", "&sslmode=require", "?ssl=true", "&ssl=true"]:
-    DATABASE_URL = DATABASE_URL.replace(param, "")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL environment variable is not configured."
+    )
 
-# تنظیمات اتصال پیشرفته برای سازگاری با Supabase و محیط‌های Serverless
+
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace(
+        "postgres://",
+        "postgresql+asyncpg://",
+        1,
+    )
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace(
+        "postgresql://",
+        "postgresql+asyncpg://",
+        1,
+    )
+elif not DATABASE_URL.startswith("postgresql+asyncpg://"):
+    raise RuntimeError(
+        "DATABASE_URL must use PostgreSQL format."
+    )
+
+
+for parameter in (
+    "?sslmode=require",
+    "&sslmode=require",
+    "?ssl=true",
+    "&ssl=true",
+):
+    DATABASE_URL = DATABASE_URL.replace(parameter, "")
+
+
 connect_args = {}
 
-# برای اتصال به سرویس‌های ابری مثل Supabase یا Neon
-if "supabase" in DATABASE_URL or "neon.tech" in DATABASE_URL or "pooler" in DATABASE_URL:
+if any(
+    hostname in DATABASE_URL
+    for hostname in (
+        "supabase.com",
+        "pooler",
+        "neon.tech",
+    )
+):
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
-    connect_args["ssl"] = ssl_context
-    # ضروری برای Supabase Transaction Pooler (پورت 6543)
-    connect_args["prepared_statement_cache_size"] = 0
 
-# ساخت موتور اتصال Async
+    connect_args = {
+        "ssl": ssl_context,
+        "prepared_statement_cache_size": 0,
+    }
+
+
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     connect_args=connect_args,
-    pool_pre_ping=True,      # تست سلامت اتصال قبل از ارسال کوئری
-    pool_recycle=300         # بازنشانی اتصال‌های غیرفعال هر ۵ دقیقه
+    poolclass=NullPool,
 )
 
-# ایجاد Factory برای Sessionهای ناهمگام
+
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
-    expire_on_commit=False
+    expire_on_commit=False,
 )
 
-# کلاس پایه برای مدل‌های دیتابیس (SQLAlchemy Base)
+
 Base = declarative_base()
 
-# وابستگی (Dependency) جهت تزریق سشن به روت‌های FastAPI
+
 async def get_db():
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session
