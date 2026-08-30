@@ -11,7 +11,10 @@ from app.schemas import SolarApplicantCreate, SolarApplicantResponse
 app = FastAPI(
     title="YesESCo Solar Registration API",
     description="سامانه یکپارچه ثبت‌نام متقاضیان نیروگاه خورشیدی یلدای سهند",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
 # تنظیمات CORS
@@ -23,7 +26,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# روت ریشه و سلامت‌سنجی (سازگار با انواع بازنویسی‌های ورسل)
 @app.get("/")
+@app.get("/api")
+@app.get("/api/index.py")
 async def root():
     return {
         "status": "online",
@@ -31,21 +37,30 @@ async def root():
     }
 
 @app.get("/api/health")
+@app.get("/health")
 async def health():
     return {"status": "ok"}
 
+# ثبت متقاضی جدید (هم با پیشوند /api و هم بدون آن)
 @app.post(
     "/api/applicants",
     response_model=SolarApplicantResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="ثبت متقاضی جدید"
+    summary="ثبت متقاضی جدید",
+    tags=["Applicants"]
+)
+@app.post(
+    "/applicants",
+    response_model=SolarApplicantResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False
 )
 async def create_applicant(
     applicant_in: SolarApplicantCreate,
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        # ایجاد خودکار جدول در صورت عدم وجود (بدون ایجاد کرش در استارت‌آپ)
+        # ایجاد خودکار جدول در صورت عدم وجود
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
@@ -64,10 +79,17 @@ async def create_applicant(
             detail=f"Database error: {str(e)}"
         )
 
+# دریافت لیست متقاضیان (هم با پیشوند /api و هم بدون آن)
 @app.get(
     "/api/applicants",
     response_model=List[SolarApplicantResponse],
-    summary="دریافت لیست تمام درخواست‌ها"
+    summary="دریافت لیست تمام درخواست‌ها",
+    tags=["Applicants"]
+)
+@app.get(
+    "/applicants",
+    response_model=List[SolarApplicantResponse],
+    include_in_schema=False
 )
 async def get_all_applicants(
     skip: int = 0,
