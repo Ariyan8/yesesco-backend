@@ -1,5 +1,5 @@
-from typing import List
-from fastapi import FastAPI, Depends, HTTPException, status
+from typing import List, Optional
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -17,31 +17,55 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# تنظیمات CORS
+# پیکربندی استاندارد CORS برای پشتیبانی از تمام کلاینت‌ها و مرورگرها
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
-# روت ریشه و سلامت‌سنجی (سازگار با انواع بازنویسی‌های ورسل)
-@app.get("/")
-@app.get("/api")
-@app.get("/api/index.py")
+# روت‌های وضعیت و سلامت سرویس
+@app.get("/", summary="بررسی وضعیت سرویس", tags=["General"])
+@app.get("/api", include_in_schema=False)
+@app.get("/api/index.py", include_in_schema=False)
 async def root():
     return {
         "status": "online",
-        "message": "YesESCo API is running successfully on Vercel"
+        "service": "YesESCo Solar Backend",
+        "platform": "Vercel Serverless"
     }
 
-@app.get("/api/health")
-@app.get("/health")
+@app.get("/api/health", summary="بررسی سلامت سیستم", tags=["General"])
+@app.get("/health", include_in_schema=False)
 async def health():
-    return {"status": "ok"}
+    return {"status": "healthy"}
 
-# ثبت متقاضی جدید (هم با پیشوند /api و هم بدون آن)
+# تابع کمکی برای همگام‌سازی فیلدهای ورودی فرانت‌اند با دیتابیس
+def normalize_applicant_payload(raw_data: dict) -> dict:
+    data = raw_data.copy()
+    
+    # مپ کردن مساحت زمین
+    if "available_area_sqm" in data and "land_area_sqm" not in data:
+        data["land_area_sqm"] = data.pop("available_area_sqm")
+        
+    # مپ کردن ظرفیت درخواستی
+    if "proposed_capacity_kw" in data and "requested_capacity_kw" not in data:
+        data["requested_capacity_kw"] = data.pop("proposed_capacity_kw")
+        
+    # مپ کردن نوع سقف/سازه
+    if "structure_type" in data and "roof_type" not in data:
+        data["roof_type"] = data.pop("structure_type")
+        
+    # مپ کردن توضیحات
+    if "description" in data and "notes" not in data:
+        data["notes"] = data.pop("description")
+        
+    return data
+
+# روت ثبت‌نام متقاضی جدید
 @app.post(
     "/api/applicants",
     response_model=SolarApplicantResponse,
@@ -56,30 +80,49 @@ async def health():
     include_in_schema=False
 )
 async def create_applicant(
-    applicant_in: SolarApplicantCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        # ایجاد خودکار جدول در صورت عدم وجود
+        raw_body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="فرمت دیتای ارسالی JSON معتبر نیست."
+        )
+
+    # نرمال‌سازی فیلدها و تبدیل به آبجکت اسکیما
+    normalized_data = normalize_applicant_payload(raw_body)
+    
+    try:
+        applicant_data = SolarApplicantCreate(**normalized_data)
+    except Exception as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err)
+        )
+
+    try:
+        # ایجاد جدول در صورت عدم وجود در Supabase
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-        # سازگار با Pydantic v1 و v2
-        data = applicant_in.model_dump() if hasattr(applicant_in, "model_dump") else applicant_in.dict()
+        data_dict = applicant_data.model_dump() if hasattr(applicant_data, "model_dump") else applicant_data.dict()
         
-        new_applicant = SolarApplicant(**data)
+        new_applicant = SolarApplicant(**data_dict)
         db.add(new_applicant)
         await db.commit()
         await db.refresh(new_applicant)
         return new_applicant
+
     except Exception as e:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            detail=f"خطا در پایگاه داده: {str(e)}"
         )
 
-# دریافت لیست متقاضیان (هم با پیشوند /api و هم بدون آن)
+# روت دریافت لیست تمام درخواست‌ها
 @app.get(
     "/api/applicants",
     response_model=List[SolarApplicantResponse],
@@ -104,5 +147,5 @@ async def get_all_applicants(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            detail=f"خطا در پایگاه داده: {str(e)}"
         )
