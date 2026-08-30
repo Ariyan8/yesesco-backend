@@ -17,7 +17,7 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# تنظیمات CORS
+# تنظیمات CORS برای ارتباط با فرانت‌اند
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,8 +59,14 @@ async def create_applicant(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        # ایجاد جدول در صورت عدم وجود
+        # ساخت جدول در صورت عدم وجود
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
+        data = applicant_in.model_dump() if hasattr(applicant_in, "model_dump") else applicant_in.dict()
+        
+        new_applicant = SolarApplicant(**data)
+        db.add(new_applicant)
         await db.commit()
         await db.refresh(new_applicant)
         return new_applicant
@@ -71,19 +77,7 @@ async def create_applicant(
             detail=f"Database error: {str(e)}"
         )
 
-# دریافت لیست متقاضیان
-@app.get(
-    "/api/applicants",
-    response_model=List[SolarApplicantResponse],
-    summary="دریافت لیست تمام درخواست‌ها",
-    tags=["Applicants"]
-)
-@app.get(
-    "/applicants",_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
-        )
-
-# دریافت لیست متقاضیان
+# دریافت لیست تمام متقاضیان
 @app.get(
     "/api/applicants",
     response_model=List[SolarApplicantResponse],
