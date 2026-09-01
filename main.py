@@ -23,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# وابستگی اتصال دیتابیس
+# Database Session Dependency
 async def get_db():
     if AsyncSessionLocal is None:
         raise HTTPException(status_code=500, detail="Database configuration is missing")
@@ -33,7 +33,6 @@ async def get_db():
         finally:
             await session.close()
 
-# روت‌های اصلی و تست
 @app.get("/")
 async def read_root():
     return {
@@ -46,7 +45,6 @@ async def read_root():
 async def health_check():
     return {"status": "healthy", "service": "yesesco-backend"}
 
-# روت‌های جدول متقاضیان
 @app.post("/api/applicants", response_model=ApplicantResponse, status_code=201)
 async def create_applicant(
     applicant_data: ApplicantCreate,
