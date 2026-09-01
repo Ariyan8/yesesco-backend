@@ -1,92 +1,180 @@
+import os
 from typing import List
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
-from app.database import get_db
-from app.models import SolarApplicant
-from app.schemas import SolarApplicantCreate, SolarApplicantResponse
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import AsyncSessionLocal
+from models import Applicant
+from schemas import ApplicantCreate, ApplicantResponse
+
 
 app = FastAPI(
-    title="YesESCo Solar Registration API",
-    description="سامانه یکپارچه ثبت‌نام متقاضیان نیروگاه خورشیدی یلدای سهند",
+    title="YesESCo Backend API",
+    description="Backend API for YesESCo solar energy services",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json"
 )
 
-# تنظیمات CORS
+
+# ---------------------------------------------------------
+# CORS
+# ---------------------------------------------------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/", summary="وضعیت سرویس", tags=["General"])
-@app.get("/api", include_in_schema=False)
-async def root():
+
+# ---------------------------------------------------------
+# Database dependency
+# ---------------------------------------------------------
+
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+# ---------------------------------------------------------
+# Health check
+# ---------------------------------------------------------
+
+@app.get("/")
+async def read_root():
     return {
         "status": "online",
-        "service": "YesESCo Solar Backend",
-        "environment": "Vercel Serverless"
+        "service": "YesESCo Backend",
+        "service": "YesESCo Backend",
+        "message": "API isasync def health_check():
+    return {
+        "status": "healthy",
+        "service": "yesesco-backend",
     }
 
-@app.get("/api/health", summary="بررسی سلامت سیستم", tags=["General"])
-async def health():
-    return {"status": "ok"}
+
+# ---------------------------------------------------------
+# Applicants endpoints
+# ---------------------------------------------------------
+
+@app.post ---------------------------------------------------------
 
 @app.post(
     "/api/applicants",
-    response_model=SolarApplicantResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="ثبت متقاضی جدید",
-    tags=["Applicants"]
+    response_model=Applicant_code=201,
 )
 async def create_applicant(
-    applicant_in: SolarApplicantCreate,
-    db: AsyncSession = Depends(get_db)
+    applicant_data: ApplicantCreate,
+    db: AsyncSession = Depends(get_db),
 ):
-    try:
-        data = applicant_in.model_dump()
-        new_applicant = SolarApplicant(**data)
-        
-        db.add(new_applicant)
-        await db.commit()
-        await db.refresh(new_applicant)
-        return new_applicant
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
-        )
+    """
+    ثبت اطلاعات متقاضی نیروگاه خورشیدی.
+    """
+
+    applicant = Applicant(
+        **applicant_data.model_dump()
+    )
+
+    db.add(applicant)
+    await db.commit()
+    await db.refresh(applicant)
+
+    return applicant
+
 
 @app.get(
     "/api/applicants",
-    response_model=List[SolarApplicantResponse],
-    summary="دریافت لیست متقاضیان",
-    tags=["Applicants"]
+    response_model=List[ApplicantResponse],
 )
-async def get_all_applicants(
-    skip: int = 0,
-    limit: int = 100,
-    db: AsyncSession = Depends(get_db)
+async def get_applicants(
+    db: AsyncSession = Depends(get_db),
 ):
-    try:
-        query = (
-            select(SolarApplicant)
-            .order_by(SolarApplicant.id.desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        result = await db.execute(query)
-        return result.scalars().all()
-    except Exception as e:
+    """
+    دریافت فهرست متقاضیان.
+    """
+
+    result = await db.execute(
+        select(Applicant).order_by(Applicant.id.desc())
+    )
+
+    applicants = result.scalars().all()
+
+    return applicants
+
+
+@app.get(
+    "/api/applicants/{applicant_id}",
+    response_model=ApplicantResponse,
+)
+async def get_applicant(
+    applicant_id: int,
+    db: AsyncSession =: int,
+    db: AsyncSession = Depends(get_db),
+):
+    اساس شناسه.
+    """
+
+    result = await db.execute(
+        select(Applicant).where(Applicant.id == applicant_id)
+    )
+
+    applicant = result.scalar_one_or_none()
+
+    if applicant is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            status_code=404,
+            detail="Applicant not found",
         )
+
+    return applicant
+
+
+@app.delete(
+    "/api/applicants/{applicant_id}",
+    status_code=204,
+)
+async def delete_applicant(
+    applicant_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    حذف یک متقاضی.
+    """
+
+    result = await db.execute(
+        select(Applicant).where(Applicant.id == applicant_id)
+    )
+
+    applicant = result.scalar_one_or_none()
+
+    if applicant is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Applicant not found",
+        )
+
+    await db.delete(applicant)
+    await db.commit()
+
+    return None
+
+
+# ---------------------------------------------------------
+# Optional API information route
+# ---------------------------------------------------------
+
+@app.get("/api")
+async def api_info():
+    return {
+        "name": "YesESCo API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "applicants_endpoint": "/api/applicants",
+    }
