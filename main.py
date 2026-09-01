@@ -3,10 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="YesESCo Backend",
-    version="1.0.0"
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
-# تنظیم CORS برای اتصال فرانت‌اند
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,7 +21,7 @@ def read_root():
     return {
         "status": "online",
         "service": "YesESCo API",
-        "message": "Backend is up and running successfully!"
+        "message": "Connected successfully!"
     }
 
 @app.get("/health")
