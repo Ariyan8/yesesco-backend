@@ -14,15 +14,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# تنظیمات CORS
-app.add_middleware(
-    CORSMiddleware,app = FastAPI(
-    title="YesESCo Backend API",
-    description="Backend API for YesESCo solar energy services",
-    version="1.0.0",
-)
-
-# تنظیمات CORS
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,15 +23,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# وابسته تزریق سشن دیتابیس
+# Database Session Dependency
 async def get_db():
+    if AsyncSessionLocal is None:
+        raise HTTPException(status_code=500, detail="Database configuration is missing")
     async with AsyncSessionLocal() as session:
         try:
             yield session
         finally:
             await session.close()
 
-# روت‌های سلامت و پایه
 @app.get("/")
 async def read_root():
     return {
@@ -52,7 +45,6 @@ async def read_root():
 async def health_check():
     return {"status": "healthy", "service": "yesesco-backend"}
 
-# روت‌های ذخیره و دریافت متقاضیان
 @app.post("/api/applicants", response_model=ApplicantResponse, status_code=201)
 async def create_applicant(
     applicant_data: ApplicantCreate,
@@ -80,4 +72,4 @@ async def get_applicant(
     applicant = result.scalar_one_or_none()
     if applicant is None:
         raise HTTPException(status_code=404, detail="Applicant not found")
-    returnforce
+    return applicant
