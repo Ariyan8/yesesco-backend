@@ -1,26 +1,17 @@
 from typing import List
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.database import engine, Base, get_db
+from app.database import get_db
 from app.models import SolarApplicant
 from app.schemas import SolarApplicantCreate, SolarApplicantResponse
-
-# ساخت جداول یک‌بار در شروع سرویس
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield
 
 app = FastAPI(
     title="YesESCo Solar Registration API",
     description="سامانه یکپارچه ثبت‌نام متقاضیان نیروگاه خورشیدی یلدای سهند",
     version="1.0.0",
-    lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
