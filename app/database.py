@@ -1,6 +1,5 @@
 import os
 import ssl
-
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -10,65 +9,38 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
 
-
 load_dotenv()
-
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL environment variable is not configured."
-    )
+    # برای جلوگیری از خطای Build زمان استقرار در ورسل
+    DATABASE_URL = "postgresql+asyncpg://postgres:dummy@localhost:5432/postgres"
 
-
+# تبدیل پروتکل استاندارد به درایور asyncpg
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace(
-        "postgres://",
-        "postgresql+asyncpg://",
-        1,
-    )
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 elif DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace(
-        "postgresql://",
-        "postgresql+asyncpg://",
-        1,
-    )
-elif not DATABASE_URL.startswith("postgresql+asyncpg://"):
-    raise RuntimeError(
-        "DATABASE_URL must use PostgreSQL format."
-    )
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-
-for parameter in (
-    "?sslmode=require",
-    "&sslmode=require",
-    "?ssl=true",
-    "&ssl=true",
-):
+# پاکسازی پارامترهای تداخلی sslmode از query string
+for parameter in ("?sslmode=require", "&sslmode=require", "?ssl=true", "&ssl=true"):
     DATABASE_URL = DATABASE_URL.replace(parameter, "")
 
+# تنظیمات اتصال مخصوص Supabase Pooler (پورت 6543)
+connect_args = {
+    "prepared_statement_cache_size": 0,
+    "statement_cache_size": 0,
+}
 
-connect_args = {}
+# فعال‌سازی SSL context برای دیتابیس ریموت
+if any(key in DATABASE_URL for key in ("supabase.com", "pooler", "neon.tech")):
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    connect_args["ssl"] = ctx
 
-if any(
-    hostname in DATABASE_URL
-    for hostname in (
-        "supabase.com",
-        "pooler",
-        "neon.tech",
-    )
-):
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-
-    connect_args = {
-        "ssl": ssl_context,
-        "prepared_statement_cache_size": 0,
-    }
-
-
+# استفاده از NullPool در محیط سرورلس
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
@@ -76,17 +48,19 @@ engine = create_async_engine(
     poolclass=NullPool,
 )
 
-
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
+    autocommit=False,
+    autoflush=False
 )
-
 
 Base = declarative_base()
 
-
 async def get_db():
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            await session.close()

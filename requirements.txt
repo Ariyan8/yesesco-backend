@@ -1,7 +1,7 @@
-fastapi
-uvicorn
-sqlalchemy
-asyncpg
-pydantic
-pydantic-settings
-psycopg2-binary
+fastapi>=0.110.0
+uvicorn>=0.29.0
+pydantic>=2.6.0
+sqlalchemy>=2.0.28
+asyncpg>=0.29.0
+python-dotenv>=1.0.1
+greenlet>=3.0.3
