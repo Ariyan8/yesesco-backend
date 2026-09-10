@@ -1,5 +1,5 @@
 {
   "platform": "python",
-  "port": 8000,
-  "app": "نام-برنامه-شما-در-لیارا"
+  "app": "yesescobackend",
+  "port": 8000
 }
